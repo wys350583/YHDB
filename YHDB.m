@@ -1,9 +1,8 @@
 //
 //  YHDB.m
-//  TaskMgr2
 //
-//  Created by 一鸿温 on 15/6/4.
-//  Copyright (c) 2015年 szl. All rights reserved.
+//  Created by wenyihong on 15/6/4.
+//  Copyright (c) 2015年 yh. All rights reserved.
 //
 
 #import "YHDB.h"
