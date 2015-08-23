@@ -1,28 +1,28 @@
 # YHDB
-Package based on fmdb,used to conveniently call database operation.
+####Package based on fmdb,used to conveniently call database operation.
 
 ##Install
-Download the [YHDB](https://github.com/wyhazq/YHDB/archive/master.zip) &  [fmdb](https://github.com/ccgus/fmdb) 
+#####Download the [YHDB](https://github.com/wyhazq/YHDB/archive/master.zip) &  [fmdb](https://github.com/ccgus/fmdb) 
 
 ##Create Database
-1.Create a database for all users.
+#####1.Create a database for all users.
 ```Objective-C
 [YHDB createDB:@"CB"];
 ```
-2.Create databases for every user.
+#####2.Create databases for every user.
 ```Objective-C
 [YHDB createDB:obj0.userId];
 ```
 
 ##Create Table
-1.Table with primary key
+#####1.Table with primary key
 ```Objective-C
 //a
 [YHDB createTB:[[User alloc] init] primaryKey:@"userId"];
 //or b
 [YHDB share].createTB([[User alloc] init]).primaryKey(@"userId").executeUpdate();
 ```
-2.Table without primary key
+#####2.Table without primary key
 ```Objective-C
 //a
 [YHDB createTB:[[User alloc] init] primaryKey:nil];
@@ -31,15 +31,15 @@ Download the [YHDB](https://github.com/wyhazq/YHDB/archive/master.zip) &  [fmdb]
 ```
 
 ##Save
-    Automatic matching for insert or update
-    1.Table with primary key
+#####Automatic matching for insert or update
+#####1.Table with primary key
 ```Objective-C
 //a
 [YHDB updateOrInsert:[NSArray arrayWithObjects:obj0, ..., nil] primaryKey:@"userId" where:nil whereIn:nil];
 //or b
 [YHDB share].save([NSArray arrayWithObjects:obj0, ..., nil]).primaryKey(@"userId").executeUpdate();
 ```
-2.Table without primary key
+#####2.Table without primary key
 ```Objective-C
 //a
 [YHDB updateOrInsert:[NSArray arrayWithObjects:obj0, ..., nil] primaryKey:nil where:[NSDictionary dictionaryWithObjectsAndKeys:@(0), @(userId), ..., nil] whereIn:nil];
