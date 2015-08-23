@@ -31,8 +31,8 @@ Download the [YHDB](https://github.com/wyhazq/YHDB/archive/master.zip) &  [fmdb]
 ```
 
 ##Save
-Automatic matching for insert or update
-1.Table with primary key
+    Automatic matching for insert or update
+    1.Table with primary key
 ```Objective-C
 //a
 [YHDB updateOrInsert:[NSArray arrayWithObjects:obj0, ..., nil] primaryKey:@"userId" where:nil whereIn:nil];
