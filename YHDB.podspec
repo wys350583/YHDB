@@ -1,8 +1,8 @@
 Pod::Spec.new do |s|
 s.name             = "YHDB"
 s.version          = "0.0.1"
-s.summary          = "Package based on fmdb,used to conveniently call database operation."
-s.description      = Package based on fmdb,used to conveniently call database operation.
+s.summary          = "Package based on fmdb."
+s.description      = "Package based on fmdb,used to conveniently call database operation."
 s.homepage         = "https://github.com/wyhazq/YHDB"  
 # s.screenshots      = "www.example.com/screenshots_1", "www.example.com/screenshots_2"  
 s.license          = 'MIT'  
