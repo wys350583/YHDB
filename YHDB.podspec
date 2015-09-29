@@ -13,5 +13,5 @@ s.platform     = :ios, '6.0'
 # s.ios.deployment_target = '6.0'
 # s.osx.deployment_target = '10.7'
 s.requires_arc = true
-s.source_files = 'YHDB*.h'
+s.source_files = 'YHDB/*'
 s.frameworks = 'Foundation'
