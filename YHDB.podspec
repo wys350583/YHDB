@@ -15,3 +15,4 @@ s.platform     = :ios, '6.0'
 s.requires_arc = true
 s.source_files = 'YHDB/*'
 s.frameworks = 'Foundation'
+end
