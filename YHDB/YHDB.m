@@ -581,6 +581,9 @@ NSString *_limitString;         //limit语句
                                                                         encoding:[NSString defaultCStringEncoding]]];
             [propertyName addObject:name];
             [propertyType addObject:type];
+            if (type.length == 0) {
+                NSLog(@"YHDB Warning:(Property Type Warning)YHDB have not type of '%s' in property:'%@'",propType, name);
+            }
         }
     }
     free(properties);
@@ -614,10 +617,13 @@ static const char * getPropertyType(objc_property_t property) {
     if ([modelType hasPrefix:@"NSString"]){
         return @"text";
     }
-    if ([modelType isEqualToString:@"i"] || [modelType isEqualToString:@"q"]){
+    if ([modelType isEqualToString:@"i"] || [modelType isEqualToString:@"q"] || [modelType isEqualToString:@"B"]){
         return @"integer";
     }
-    return nil;
+    if ([modelType isEqualToString:@"d"]) {
+        return @"real";
+    }
+    return @"";
 }
 
 //返回实体数组的所有主键
@@ -633,12 +639,11 @@ static const char * getPropertyType(objc_property_t property) {
     if ([type isEqualToString:@"text"]) {
         return [NSString stringWithFormat:@" '%@' ",value];
     }
-    if ([type isEqualToString:@"integer"]) {
+    if ([type isEqualToString:@"integer"] || [type isEqualToString:@"real"]) {
         return [NSString stringWithFormat:@" %@ ",value];
     }
     return @"";
 }
-
 ////////////////////////////////////////another way///////////////////////////////////////////
 
 /**
