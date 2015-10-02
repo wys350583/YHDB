@@ -28,12 +28,23 @@
 #####Automatic matching for insert or update
 #####1.Table with primary key
 ```Objective-C
-[YHDB save:[NSArray arrayWithObjects:obj0, ..., nil] primaryKey:@"userId" where:nil whereIn:nil];
+[YHDB save:[NSArray arrayWithObjects:obj0, ..., nil] 
+      primaryKey:@"userId" 
+      where:nil 
+      whereIn:nil];
 ```
 #####2.Table without primary key
 ```Objective-C
-[YHDB save:[NSArray arrayWithObjects:obj0, ..., nil] primaryKey:nil where:[NSDictionary dictionaryWithObjectsAndKeys:@(0), @(userId), ..., nil] whereIn:nil];
-[YHDB save:[NSArray arrayWithObjects:obj0, ..., nil] primaryKey:nil where:nil whereIn:[NSDictionary dictionaryWithObject:[NSArray arrayWithObjects:@(0), ..., nil] forKey:@(userId)]];
+//1
+[YHDB save:[NSArray arrayWithObjects:obj0, ..., nil] 
+      primaryKey:nil 
+      where:@{@(userId) : @(0), ...} 
+      whereIn:nil];
+//2
+[YHDB save:[NSArray arrayWithObjects:obj0, ..., nil] 
+      primaryKey:nil 
+      where:nil 
+      whereIn:@{@(userId) : @[@(0), @(1), ...]}];
 ```
 ##Insert
 ```Objective-C
@@ -41,13 +52,24 @@
 ```
 ##Delete
 ```Objective-C
-[YHDB delete:[[User alloc] init] where:nil whereIn:nil]; //delete all
-[YHDB delete:[[User alloc] init] where:[NSDictionary dictionaryWithObject:obj0.userId forKey:@"userId"] whereIn:nil];//delete one
-[YHDB delete:[[User alloc] init] where:nil whereIn:[NSDictionary dictionaryWithObject:[NSArray arrayWithObjects:obj0.userId, ..., nil]];//delete some
+//1
+[YHDB delete:[[User alloc] init] 
+      where:nil 
+      whereIn:nil]; //delete all
+//2
+[YHDB delete:[[User alloc] init] 
+      where:@{@(userId) : @(0)} 
+      whereIn:nil];//delete one
+//3
+[YHDB delete:[[User alloc] init] 
+      where:nil 
+      whereIn:@{@(userId) : @[@(0), @(1), ...]}];//delete some
 ```
 ##Update
 ```Objective-C
-[YHDB update:obj0 tbModel:nil whereArray:[NSArray arrayWithObjects:@"userId", ..., nil]];
+[YHDB update:obj0 
+      tbModel:nil 
+      whereArray:@[@"userId"]];
 ```
 ##Select
 ```Objective-C
@@ -58,6 +80,11 @@
  *groupBy   @{@"GROUP BY" : arrayWithObjects}
  *limit     @{@(start) : @(count)}
  */
-[YHDB select:[[User alloc] init] where:nil whereIn:nil orderBy:nil groupBy:nil limit:nil];
+[YHDB select:[[User alloc] init] 
+      where:nil 
+      whereIn:nil 
+      orderBy:nil 
+      groupBy:nil 
+      limit:nil];
 ```
 
