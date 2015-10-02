@@ -8,30 +8,9 @@
 #import "YHDB.h"
 #import <objc/runtime.h>
 
-typedef NS_ENUM(NSInteger, ExecuteType) {
-    Create = 0,
-    Insert = 1,
-    Update = 2,
-    Delete = 3,
-    Save   = 4,
-};
-
 static YHDB *yhDB = nil;
 
 @implementation YHDB
-
-ExecuteType EType;              //数据库操作类型
-id _model;                      //实体
-id _tbModel;                    //数据库实体
-NSArray *_modelArray;           //modelArray;
-NSString *_primaryKey;          //主键
-NSMutableArray *_createTBArray; //创建语句
-NSString *_selectString;        //select 语句
-NSString *_whereString;         //where 语句
-NSString *_whereInString;       //where in 语句
-NSString *_orderByString;       //order by 语句
-NSString *_groupByString;       //group by 语句
-NSString *_limitString;         //limit语句
 
 /**
  *  0 create path in document with a database name
@@ -57,7 +36,7 @@ NSString *_limitString;         //limit语句
         if (!yhDB) {
             yhDB = [[YHDB alloc] initWithPath:[[self documentPath] stringByAppendingPathComponent:[[NSUserDefaults standardUserDefaults] objectForKey:@"YHDBPATH"]]];
 #if DEBUG
-            NSLog(@"\n----------[YHDB Path]----------\n%@\n-------------------------------\n", yhDB.path);
+            NSLog(@"\n[YHDB Path]\n%@\n", yhDB.path);
 #endif
         }
         return yhDB;
@@ -73,7 +52,7 @@ NSString *_limitString;         //limit语句
     if (yhDB) {
         yhDB = nil;
 #if DEBUG
-        NSLog(@"----------[YHDB Release]----------");
+        NSLog(@"[YHDB Release]");
 #endif
     }
 }
@@ -81,32 +60,23 @@ NSString *_limitString;         //limit语句
 /**
  *  3 create table
  *
- *  @param model      [[Model alloc] init]
- *  @param primaryKey table has primary key ? primaryKey = a key from model : nil;
+ *  @param modelDic @{model : primarykey}
  *
  *  @return result of create
  */
-+ (BOOL)createTB:(id)model primaryKey:(NSString *)primaryKey {
-    __block BOOL result;
-    [[YHDB share] inDatabase:^(FMDatabase *db) {
-        NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
-        NSMutableArray *memberArray = [NSMutableArray array];
-        NSString *primaryString = primaryKey == nil ? @"id integer PRIMARY KEY AUTOINCREMENT" : [NSString stringWithFormat:@"%@ %@ PRIMARY KEY", primaryKey, KT_Dic[primaryKey]];
-        [memberArray addObject:primaryString];
-        if (primaryKey) {
-            [KT_Dic removeObjectForKey:primaryKey];
-        }
-        [KT_Dic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-            [memberArray addObject:[NSString stringWithFormat:@"%@ %@", key, obj]];
-        }];
-        NSString *sql=[NSString stringWithFormat:@"CREATE TABLE if not exists %@ (%@)", [self tableName:model], [memberArray componentsJoinedByString:@","]];
-        result = [db executeUpdate:sql];
++ (void)createTB:(NSDictionary *)modelDic {
+    __weak __typeof(self)weakSelf = self;
+    [[YHDB share] inTransaction:^(FMDatabase *db, BOOL *rollback) {
+        __strong __typeof(weakSelf)strongSelf = weakSelf;
+        [modelDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+            NSString *sql = [strongSelf sqlOfCreateTB:key primaryKey:obj];
+            BOOL result = [db executeUpdate:sql];
 #if DEBUG
-        NSString *log = result ? @"\n----------[YHDB CreateTBSucceed]----------\n" : [NSString stringWithFormat:@"\n----------[YHDB CreateTBFailed]----------\n%@\n-------------------------------\n",sql];
-        NSLog(@"%@",log);
+            NSString *log = result ? @"\n[YHDB CreateTBSucceed]\n" : [NSString stringWithFormat:@"\n[YHDB CreateTBFailed]\n%@\n",sql];
+            NSLog(@"%@",log);
 #endif
+        }];
     }];
-    return result;
 }
 
 /**
@@ -117,72 +87,136 @@ NSString *_limitString;         //limit语句
  *  @param whereDic   if primary key == nil, then you need to input a whereDic{key0 : value0, key1 : value1, ...} to select the data in table which equal to the data you input and then the method will delele the data in table and insert you data
  *  @param whereInDic if primary key == nil, like param "whereDic"
  */
-+ (void)updateOrInsert:(NSArray *)modelArray
-            primaryKey:(NSString *)primaryKey
-                 where:(NSDictionary *)whereDic
-               whereIn:(NSDictionary *)whereInDic {
++ (void)save:(NSArray *)modelArray
+  primaryKey:(NSString *)primaryKey
+       where:(NSDictionary *)whereDic
+     whereIn:(NSDictionary *)whereInDic {
     if (modelArray.count > 0) {
-        if (primaryKey) {
-            //全部主键
-            NSMutableArray *allPkMArray = [self getPkArrayFromModelArray:modelArray
-                                                             primaryKey:primaryKey];
-            //表中存在的主键:1条sql
-            NSArray *updatePkArray = [self selectPrimaryKey:primaryKey
-                                                       from:[modelArray lastObject]
-                                          wherePrimaryKeyIn:allPkMArray];
-            //如果存在更新的行
-            if (updatePkArray.count > 0) {
-                NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:[modelArray lastObject]];
-                NSDictionary *whereInDic = [NSDictionary dictionaryWithObject:updatePkArray forKey:primaryKey];
-                //表中存在的行
-                NSMutableArray *updataModelMArray = [self select:[modelArray lastObject]
-                                                           where:nil
-                                                         whereIn:whereInDic
-                                                         orderBy:nil
-                                                         groupBy:nil
-                                                           limit:nil];
-                __block BOOL haveUpdate;
-                NSMutableArray *modelMArray = [NSMutableArray arrayWithArray:modelArray];
-                [modelMArray enumerateObjectsUsingBlock:^(id obj0, NSUInteger idx0, BOOL *stop0) {
-                    haveUpdate = NO;
-                    [updataModelMArray enumerateObjectsUsingBlock:^(id obj1, NSUInteger idx1, BOOL *stop1) {
-                        if ([KT_Dic[primaryKey] isEqualToString:@"integer"]) {
-                            if ([obj0 valueForKey:primaryKey] == [obj1 valueForKey:primaryKey]) {
-                                haveUpdate = YES;
-                            }
-                        }
-                        if ([KT_Dic[primaryKey] isEqualToString:@"text"]) {
-                            if ([[obj0 valueForKey:primaryKey] isEqualToString:[obj1 valueForKey:primaryKey]]) {
-                                haveUpdate = YES;
-                            }
-                        }
-                        if (haveUpdate) {
-                            [self update:obj0
-                                 tbModel:obj1
-                              whereArray:@[primaryKey]];
-                            *stop1 = YES;
-                        }
-                    }];
-                    if (!haveUpdate) {
-                        [self insert:obj0];
-                    }
-                }];
-            }
-            else {//全部都是插入
-                [modelArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-                    [self insert:obj];
-                }];
-            }
+        if (modelArray.count == 1) {
+            [self save:modelArray primaryKey:primaryKey];
         }
-        else {//无主键:先删后插
-            [self delete:[modelArray lastObject] where:whereDic whereIn:whereInDic];
-            [modelArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-                [self insert:obj];
-            }];
+        else {
+            if (primaryKey) {
+                //全部主键
+                NSMutableArray *allPkMArray = [self getPkArrayFromModelArray:modelArray
+                                                                  primaryKey:primaryKey];
+                //表中存在的主键:1条sql
+                NSArray *updatePkArray = [self selectPrimaryKey:primaryKey
+                                                           from:[modelArray lastObject]
+                                              wherePrimaryKeyIn:allPkMArray];
+                //如果存在更新的行
+                if (updatePkArray.count > 0) {
+                    NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:[modelArray lastObject]];
+                    NSDictionary *whereIn = [NSDictionary dictionaryWithObject:updatePkArray forKey:primaryKey];
+                    //表中存在的行
+                    NSMutableArray *updataModelMArray = [self select:[modelArray lastObject]
+                                                               where:nil
+                                                             whereIn:whereIn
+                                                             orderBy:nil
+                                                             groupBy:nil
+                                                               limit:nil];
+                    __block BOOL haveUpdate;
+                    NSMutableArray *modelMArray = [NSMutableArray arrayWithArray:modelArray];
+                    __weak __typeof(self)weakSelf = self;
+                    [[YHDB share] inTransaction:^(FMDatabase *db, BOOL *rollback) {
+                        __strong __typeof(weakSelf)strongSelf = weakSelf;
+                        [modelMArray enumerateObjectsUsingBlock:^(id obj0, NSUInteger idx0, BOOL *stop0) {
+                            haveUpdate = NO;
+                            [updataModelMArray enumerateObjectsUsingBlock:^(id obj1, NSUInteger idx1, BOOL *stop1) {
+                                if ([KT_Dic[primaryKey] isEqualToString:@"integer"] || [KT_Dic[primaryKey] isEqualToString:@"real"]) {
+                                    if ([obj0 valueForKey:primaryKey] == [obj1 valueForKey:primaryKey]) {
+                                        haveUpdate = YES;
+                                    }
+                                }
+                                if ([KT_Dic[primaryKey] isEqualToString:@"text"]) {
+                                    if ([[obj0 valueForKey:primaryKey] isEqualToString:[obj1 valueForKey:primaryKey]]) {
+                                        haveUpdate = YES;
+                                    }
+                                }
+                                if (haveUpdate) {
+                                    NSString *sql = [strongSelf sqlOfUpdate:obj0
+                                                                    tbModel:obj1
+                                                                 whereArray:@[primaryKey]];
+                                    if (sql.length > 0) {
+                                        BOOL result = [db executeUpdate:sql];
+#if DEBUG
+                                        NSString *log = result ? @"\n[YHDB UpdateSucceed]\n" : [NSString stringWithFormat:@"\n[YHDB UpdateFailed]\n%@\n",sql];
+                                        NSLog(@"%@",log);
+#endif
+                                    }
+                                    *stop1 = YES;
+                                }
+                            }];
+                            if (!haveUpdate) {
+                                NSString *sql = [strongSelf sqlOfInsert:obj0];
+                                BOOL result = [db executeUpdate:sql];
+#if DEBUG
+                                NSString *log = result ? @"\n[YHDB InsertSucceed]\n" : [NSString stringWithFormat:@"\n[YHDB InsertFailed]\n%@\n",sql];
+                                NSLog(@"%@",log);
+#endif
+                            }
+                        }];
+                    }];
+                }
+                else {//全部都是插入
+                    __weak __typeof(self)weakSelf = self;
+                    [[YHDB share] inTransaction:^(FMDatabase *db, BOOL *rollback) {
+                        __strong __typeof(weakSelf)strongSelf = weakSelf;
+                        [modelArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+                            NSString *sql = [strongSelf sqlOfInsert:obj];
+                            BOOL result = [db executeUpdate:sql];
+#if DEBUG
+                            NSString *log = result ? @"\n[YHDB InsertSucceed]\n" : [NSString stringWithFormat:@"\n[YHDB InsertFailed]\n%@\n",sql];
+                            NSLog(@"%@",log);
+#endif
+                        }];
+                    }];
+                }
+            }
+            else {//无主键:先删后插
+                [self delete:[modelArray lastObject] where:whereDic whereIn:whereInDic];
+                __weak __typeof(self)weakSelf = self;
+                [[YHDB share] inTransaction:^(FMDatabase *db, BOOL *rollback) {
+                    __strong __typeof(weakSelf)strongSelf = weakSelf;
+                    [modelArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+                        NSString *sql = [strongSelf sqlOfInsert:obj];
+                        BOOL result = [db executeUpdate:sql];
+#if DEBUG
+                        NSString *log = result ? @"\n[YHDB InsertSucceed]\n" : [NSString stringWithFormat:@"\n[YHDB InsertFailed]\n%@\n",sql];
+                        NSLog(@"%@",log);
+#endif
+                        
+                    }];
+                }];
+            }
         }
     }
 }
 
+/**
+ * save one model
+ */
++ (void)save:(NSArray *)modelArray
+  primaryKey:(NSString *)primaryKey {
+    id model = [modelArray lastObject];
+    id value = [model valueForKey:primaryKey];
+    if (value) {
+        NSDictionary *whereDic = @{primaryKey : value};
+        //表中存在的行
+        NSMutableArray *updataModelMArray = [self select:model
+                                                   where:whereDic
+                                                 whereIn:nil
+                                                 orderBy:nil
+                                                 groupBy:nil
+                                                   limit:nil];
+        if (updataModelMArray.count > 0) {
+            [self update:model tbModel:[updataModelMArray lastObject] whereArray:@[primaryKey]];
+        }
+        else {
+            [self insert:model];
+        }
+    }
+}
 
 /**
  *  5 insert data into table
@@ -193,25 +227,16 @@ NSString *_limitString;         //limit语句
  */
 +(BOOL)insert:(id)model {
     __block BOOL result;
+    NSString *sql = [self sqlOfInsert:model];
+    
     [[YHDB share] inDatabase:^(FMDatabase *db) {
-        NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
-        __block NSMutableDictionary *KV_Dic = [NSMutableDictionary dictionary];
-        [KT_Dic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-            id value = [model valueForKey:key];
-            if (value) {
-                [KV_Dic setObject:[self dbValue:value type:obj] forKey:key];
-            }
-            else {
-                [KV_Dic setObject:@"''" forKey:key];
-            }
-        }];
-        NSMutableString *sql= [NSMutableString stringWithFormat:@"INSERT INTO %@ (%@) VALUES (%@)", [self tableName:model], [KV_Dic.allKeys componentsJoinedByString:@","], [KV_Dic.allValues componentsJoinedByString:@","]];
         result = [db executeUpdate:sql];
-#if DEBUG
-        NSString *log = result ? @"\n----------[YHDB InsertSucceed]----------\n" : [NSString stringWithFormat:@"\n----------[YHDB InsertFailed]----------\n%@\n-------------------------------\n",sql];
-        NSLog(@"%@",log);
-#endif
+        
     }];
+#if DEBUG
+    NSString *log = result ? @"\n[YHDB InsertSucceed]\n" : [NSString stringWithFormat:@"\n[YHDB InsertFailed]\n%@\n",sql];
+    NSLog(@"%@",log);
+#endif
     return result;
 }
 
@@ -227,42 +252,19 @@ NSString *_limitString;         //limit语句
 + (BOOL)delete:(id)model
          where:(NSDictionary *)whereDic
        whereIn:(NSDictionary *)whereInDic {
+    NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
+    NSString *whereString = [self where:whereDic KT_Dic:KT_Dic];
+    NSString *whereInString = [self whereIn:whereInDic KT_Dic:KT_Dic];
+    NSString *sql= [NSString stringWithFormat:@"DELETE FROM %@ %@%@", [self tableName:model], whereString, whereInString];
     __block BOOL result;
+    
     [[YHDB share] inDatabase:^(FMDatabase *db) {
-        NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
-        NSString *deleteString;
-        
-        //WHERE字典:WHERE ? = ?
-        if (whereDic) {
-            NSMutableArray *whereArray = [NSMutableArray array];
-            [whereDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                [whereArray addObject:[NSString stringWithFormat:@" %@ = %@ ", key, [self dbValue:obj type:KT_Dic[key]]]];
-            }];
-            deleteString = [NSString stringWithFormat:@"WHERE %@",[whereArray componentsJoinedByString:@"AND"]];
-        }
-        
-        //WHERE IN (?)
-        if (whereInDic && whereInDic.count == 1) {
-            NSMutableArray *inArray = [NSMutableArray array];
-            [whereInDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                if ([obj isKindOfClass:[NSArray class]]) {
-                    NSArray *objArray = obj;
-                    [objArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-                        [inArray addObject:[NSString stringWithFormat:@" %@ ", [self dbValue:obj type:KT_Dic[key]]]];
-                    }];
-                }
-            }];
-            deleteString = [NSString stringWithFormat:@"WHERE %@ IN (%@)", whereInDic.allKeys[0], [inArray componentsJoinedByString:@","]];
-        }
-        
-        
-        NSString *sql= [NSString stringWithFormat:@"DELETE FROM %@ %@", [self tableName:model], deleteString];
         result = [db executeUpdate:sql];
-#if DEBUG
-        NSString *log = result ? @"\n----------[YHDB DeleteSucceed]----------\n" : [NSString stringWithFormat:@"\n----------[YHDB DeleteFailed]----------\n%@\n-------------------------------\n",sql];
-        NSLog(@"%@",log);
-#endif
     }];
+#if DEBUG
+    NSString *log = result ? @"\n[YHDB DeleteSucceed]\n" : [NSString stringWithFormat:@"\n[YHDB DeleteFailed]\n%@\n",sql];
+    NSLog(@"%@",log);
+#endif
     return result;
 }
 
@@ -279,59 +281,16 @@ NSString *_limitString;         //limit语句
       tbModel:(id)tbModel
    whereArray:(NSArray *)whereArray {
     __block BOOL result;
-    [[YHDB share] inDatabase:^(FMDatabase *db) {
-        NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
-        NSMutableArray *memberArray = [NSMutableArray array];
-        //有变化才更新
-        if (tbModel) {
-            [KT_Dic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                if ([obj isEqualToString:@"integer"]) {
-                    if (![[model valueForKey:key] isEqualToNumber:[tbModel valueForKey:key]]) {
-                        id value = [model valueForKey:key];
-                        if (value) {
-                            [memberArray addObject:[NSString stringWithFormat:@" %@ = %@ ", key, [self dbValue:[model valueForKey:key] type:KT_Dic[key]]]];
-                        }
-                    }
-                }
-                if ([obj isEqualToString:@"text"]) {
-                    if (![[model valueForKey:key] isEqualToString:[tbModel valueForKey:key]]) {
-                        id value = [model valueForKey:key];
-                        if (value) {
-                            [memberArray addObject:[NSString stringWithFormat:@" %@ = %@ ", key, [self dbValue:[model valueForKey:key] type:KT_Dic[key]]]];
-                        }
-
-                    }
-                }
-            }];
-        }
-        //有没有变化都更新
-        else {
-            [KT_Dic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                id value = [model valueForKey:key];
-                if (value) {
-                    [memberArray addObject:[NSString stringWithFormat:@" %@ = %@ ", key, [self dbValue:[model valueForKey:key] type:KT_Dic[key]]]];
-                }
-            }];
-        }
-        if (memberArray.count > 0) {
-            NSString *sql;
-            NSString *whereString = [NSString string];
- 
-            if (whereArray) {
-                NSMutableArray *where = [NSMutableArray array];
-                [whereArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-                    [where addObject:[NSString stringWithFormat:@" %@ = %@ ", obj, [self dbValue:[model valueForKey:obj] type:KT_Dic[obj]]]];
-                }];
-                whereString = [NSString stringWithFormat:@"WHERE %@", [where componentsJoinedByString:@"AND"]];
-            }
-            sql = [NSString stringWithFormat:@"UPDATE %@ SET %@ %@", [self tableName:model], [memberArray componentsJoinedByString:@","], whereString];
+    NSString *sql = [self sqlOfUpdate:model tbModel:tbModel whereArray:whereArray];
+    if (sql.length > 0) {
+        [[YHDB share] inDatabase:^(FMDatabase *db) {
             result = [db executeUpdate:sql];
+        }];
+    }
 #if DEBUG
-            NSString *log = result ? @"\n----------[YHDB UpdateSucceed]----------\n" : [NSString stringWithFormat:@"\n----------[YHDB UpdateFailed]----------\n%@\n-------------------------------\n",sql];
-            NSLog(@"%@",log);
+    NSString *log = result ? @"\n[YHDB UpdateSucceed]\n" : [NSString stringWithFormat:@"\n[YHDB UpdateFailed]\n%@\n",sql];
+    NSLog(@"%@",log);
 #endif
-        }
-    }];
     return result;
 }
 
@@ -355,56 +314,32 @@ NSString *_limitString;         //limit语句
                      limit:(NSDictionary *)limitDic {
     __block id modelCopy;
     NSMutableArray *modelMArray = [NSMutableArray array];
+    NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
+    NSString *whereString = [self where:whereDic KT_Dic:KT_Dic];
+    NSString *whereInString = [self whereIn:whereInDic KT_Dic:KT_Dic];
+    NSString *orderByString = [NSString string];
+    NSString *groupByString = [NSString string];
+    NSString *limitString = [NSString string];
+    
+    //ORDER BY字典:ORDER BY ? ASC||DESC
+    if (orderByDic && orderByDic.count == 1) {
+        orderByString = [NSString stringWithFormat:@"ORDER BY %@ %@", [orderByDic.allValues[0]  componentsJoinedByString:@","], orderByDic.allKeys[0]];
+    }
+    
+    if (groupByDic && groupByDic.count == 1) {
+        groupByString = [NSString stringWithFormat:@"GROUP BY  %@", [groupByDic.allValues[0] componentsJoinedByString:@","]];
+    }
+    if (limitDic) {
+        limitString = [NSString stringWithFormat:@"LIMIT %@, %@", limitDic.allKeys[0], limitDic.allValues[0]];
+    }
+    //查询所有字段:SELECT * FROM TABLENAME
+    NSMutableString *sql= [NSMutableString stringWithFormat:@"SELECT %@ FROM %@ %@ %@ %@ %@ %@", [KT_Dic.allKeys componentsJoinedByString:@", "], [self tableName:model], whereString, whereInString, orderByString, groupByString, limitString];
+    
     [[YHDB share] inDatabase:^(FMDatabase *db){
-        NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
-        
-        NSString *whereString = [NSString string];
-        NSString *whereInString = [NSString string];
-        NSString *orderByString = [NSString string];
-        NSString *groupByString = [NSString string];
-        NSString *limitString = [NSString string];
-        
-        //WHERE字典:WHERE ? = ?
-        if (whereDic) {
-            NSMutableArray *whereArray = [NSMutableArray array];
-            [whereDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                [whereArray addObject:[NSString stringWithFormat:@" %@ = %@ ", key, [self dbValue:obj type:KT_Dic[key]]]];
-            }];
-            whereString = [NSString stringWithFormat:@"WHERE %@",[whereArray componentsJoinedByString:@"AND"]];
-        }
-        
-        //WHERE IN (?)
-        if (whereInDic && whereInDic.count == 1) {
-            NSMutableArray *inArray = [NSMutableArray array];
-            [whereInDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                if ([obj isKindOfClass:[NSArray class]]) {
-                    NSArray *objArray = obj;
-                    [objArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-                        [inArray addObject:[NSString stringWithFormat:@" %@ ", [self dbValue:obj type:KT_Dic[key]]]];
-                    }];
-                }
-            }];
-            whereInString = [NSString stringWithFormat:@"WHERE %@ IN (%@)", whereInDic.allKeys[0], [inArray componentsJoinedByString:@","]];
-        }
-        
-        //ORDER BY字典:ORDER BY ? ASC||DESC
-        if (orderByDic && orderByDic.count == 1) {
-            orderByString = [NSString stringWithFormat:@"ORDER BY %@ %@", [orderByDic.allValues[0]  componentsJoinedByString:@","], orderByDic.allKeys[0]];
-        }
-        
-        if (groupByDic && groupByDic.count == 1) {
-            groupByString = [NSString stringWithFormat:@"GROUP BY  %@", [groupByDic.allValues[0] componentsJoinedByString:@","]];
-        }
-        if (limitDic) {
-            limitString = [NSString stringWithFormat:@"LIMIT %@, %@", limitDic.allKeys[0], limitDic.allValues[0]];
-        }
-        
-        //查询所有字段:SELECT * FROM TABLENAME
-        NSMutableString *sql= [NSMutableString stringWithFormat:@"SELECT %@ FROM %@ %@ %@ %@ %@ %@", [KT_Dic.allKeys componentsJoinedByString:@", "], [self tableName:model], whereString, whereInString, orderByString, groupByString, limitString];
         FMResultSet *rs = [db executeQuery:sql];
 #if DEBUG
         if (!rs) {
-            NSLog(@"\n----------[YHDB Select]----------\n%@\n-------------------------------\n", rs.query);
+            NSLog(@"\n[YHDB SelectFailed]\n%@\n", rs.query);
         }
 #endif
         while ([rs next]) {
@@ -415,6 +350,9 @@ NSString *_limitString;         //limit语句
                 }
                 if ([KT_Dic[key] isEqualToString:@"integer"]) {
                     [modelCopy setValue:@([rs intForColumn:key]) forKey:key];
+                }
+                if ([KT_Dic[key] isEqualToString:@"real"]) {
+                    [modelCopy setValue:@([rs doubleForColumn:key]) forKey:key];
                 }
             }];
             [modelMArray addObject:modelCopy];
@@ -435,9 +373,14 @@ NSString *_limitString;         //limit语句
 + (NSMutableArray *)select:(id)model sql:(NSString *)sql {
     __block id modelCopy;
     NSMutableArray *modelMArray = [NSMutableArray array];
+    NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
     [[YHDB share] inDatabase:^(FMDatabase *db){
-        NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
         FMResultSet *rs = [db executeQuery:sql];
+#if DEBUG
+        if (!rs) {
+            NSLog(@"\n[YHDB SelectFailed]\n%@\n", rs.query);
+        }
+#endif
         while ([rs next]) {
             modelCopy = [[[model class] alloc]init];
             [KT_Dic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
@@ -446,6 +389,9 @@ NSString *_limitString;         //limit语句
                 }
                 if ([KT_Dic[key] isEqualToString:@"integer"]) {
                     [modelCopy setValue:@([rs intForColumn:key]) forKey:key];
+                }
+                if ([KT_Dic[key] isEqualToString:@"real"]) {
+                    [modelCopy setValue:@([rs doubleForColumn:key]) forKey:key];
                 }
             }];
             [modelMArray addObject:modelCopy];
@@ -468,20 +414,30 @@ NSString *_limitString;         //limit语句
                                 from:(id)model
                    wherePrimaryKeyIn:(NSArray *)primaryKeyArray {
     __block NSMutableArray *marray = [NSMutableArray array];
+    NSDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
+    
+    NSMutableArray *inArray = [NSMutableArray array];
+    [primaryKeyArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+        [inArray addObject:[NSString stringWithFormat:@" %@ ", [self dbValue:obj type:KT_Dic[primaryKey]]]];
+    }];
+    NSString *primaryKeyString = [inArray componentsJoinedByString:@","];
+    
+    NSMutableString *sql= [NSMutableString stringWithFormat:@"SELECT %@ FROM %@ WHERE %@ in (%@)", primaryKey, [self tableName:model], primaryKey, primaryKeyString];
     [[YHDB share] inDatabase:^(FMDatabase *db) {
-        NSDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
-        
-        NSMutableArray *inArray = [NSMutableArray array];
-        [primaryKeyArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-            [inArray addObject:[NSString stringWithFormat:@" %@ ", [self dbValue:obj type:KT_Dic[primaryKey]]]];
-        }];
-        NSString *primaryKeyString = [inArray componentsJoinedByString:@","];
-        
-        NSMutableString *sql= [NSMutableString stringWithFormat:@"SELECT %@ FROM %@ WHERE %@ in (%@)", primaryKey, [self tableName:model], primaryKey, primaryKeyString];
         FMResultSet *rs = [db executeQuery:sql];
+#if DEBUG
+        if (!rs) {
+            NSLog(@"\n[YHDB SelectFailed]\n%@\n", rs.query);
+        }
+#endif
         if ([KT_Dic[primaryKey] isEqualToString:@"integer"]) {
             while ([rs next]) {
                 [marray addObject:@([rs intForColumn:primaryKey])];
+            }
+        }
+        if ([KT_Dic[primaryKey] isEqualToString:@"real"]) {
+            while ([rs next]) {
+                [marray addObject:@([rs doubleForColumn:primaryKey])];
             }
         }
         if ([KT_Dic[primaryKey] isEqualToString:@"text"]) {
@@ -504,21 +460,18 @@ NSString *_limitString;         //limit语句
 + (int)selectCount:(id)model
           whereDic:(NSDictionary *)whereDic {
     __block int count;
+    NSDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
+    NSString *whereString = [self where:whereDic KT_Dic:KT_Dic];
+    
+    NSString *sql= [NSString stringWithFormat:@"SELECT COUNT(1) AS count FROM %@ %@", [self tableName:model], whereString];
+    
     [[YHDB share] inDatabase:^(FMDatabase *db){
-        NSDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
-        NSString *whereString = [NSString string];
-        
-        //WHERE字典:WHERE ? = ?
-        if (whereDic) {
-            NSMutableArray *whereArray = [NSMutableArray array];
-            [whereDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                [whereArray addObject:[NSString stringWithFormat:@" %@ = %@ ", key, [self dbValue:obj type:KT_Dic[key]]]];
-            }];
-            whereString = [NSString stringWithFormat:@"WHERE %@",[whereArray componentsJoinedByString:@"AND"]];
-        }
-        
-        NSString *sql= [NSString stringWithFormat:@"SELECT COUNT(1) AS count FROM %@ %@", [self tableName:model], whereString];
         FMResultSet *rs = [db executeQuery:sql];
+#if DEBUG
+        if (!rs) {
+            NSLog(@"\n[YHDB SelectFailed]\n%@\n", rs.query);
+        }
+#endif
         while ([rs next]) {
             count = [rs intForColumn:@"count"];
         }
@@ -644,470 +597,138 @@ static const char * getPropertyType(objc_property_t property) {
     }
     return @"";
 }
-////////////////////////////////////////another way///////////////////////////////////////////
 
-/**
- *  0 create table
- *
- */
-- (YHDB *(^)(id))createTB {
-    return ^YHDB* (id t) {
-        EType = Create;
-        _model = t;
-        return self;
-    };
-}
-
-/**
- *  1 auto match to update or insert the data of a model or models which you input
- *
- */
-- (YHDB *(^)(NSArray *))save {
-    return ^YHDB *(NSArray * t) {
-        EType = Save;
-        _modelArray = t;
-        return self;
-    };
-}
-
-/**
- *  2 insert data into table
- *
- */
-- (YHDB *(^)(id))insert_ {
-    return ^YHDB* (id t) {
-        EType = Insert;
-        _model = t;
-        return self;
-    };
-}
-
-/**
- *  3 delete data from table
- *
- */
-- (YHDB *(^)())delete_ {
-    return ^YHDB* {
-        EType = Delete;
-        return self;
-    };
-}
-
-/**
- *  4 update table
- *
- */
-- (YHDB *(^)(id))update {
-    return ^YHDB* (id t) {
-        EType = Update;
-        _model = t;
-        return self;
-    };
-}
-
-/**
- *  5 select data from table
- *
- */
-- (YHDB *(^)(NSString *))select {
-    return ^YHDB *(NSString * t) {
-        _selectString = t;
-        return self;
-    };
-}
-
-/**
- *  6 primaryKey
- */
-- (YHDB *(^)(NSString *))primaryKey {
-    return ^YHDB *(NSString *t) {
-        _primaryKey = t;
-        return self;
-    };
-}
-
-/**
- *  7 form tablename : [[Model alloc] init]
- */
-- (YHDB *(^)(id))from {
-    return ^YHDB* (id t) {
-        _model = t;
-        return self;
-    };
-}
-
-/**
- *  8 tbModel select from table,use in update to compare to model
- */
-- (YHDB *(^)(id))tbModel {
-    return ^YHDB* (id t) {
-        _tbModel = t;
-        return self;
-    };
-}
-
-/**
- *  9
- */
-- (YHDB *(^)(NSDictionary *))where {
-    return ^YHDB *(NSDictionary *t) {
-        //WHERE字典:WHERE ? = ?
-        if (t) {
-            NSMutableDictionary *KT_Dic = [YHDB getKeysAndTypesFromModel:_model];
-            NSMutableArray *whereArray = [NSMutableArray array];
-            [t enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                [whereArray addObject:[NSString stringWithFormat:@" %@ = %@ ", key, [YHDB dbValue:obj type:KT_Dic[key]]]];
-            }];
-            _whereString = [NSString stringWithFormat:@"WHERE %@",[whereArray componentsJoinedByString:@"AND"]];
-        }
-        return self;
-    };
-}
-
-/**
- *  10
- */
-- (YHDB *(^)(NSDictionary *))whereIn {
-    return ^YHDB *(NSDictionary *t) {
-        //WHERE IN (?)
-        if (t && t.count == 1) {
-            NSMutableDictionary *KT_Dic = [YHDB getKeysAndTypesFromModel:_model];
-            if (t && t.count == 1) {
-                NSMutableArray *inArray = [NSMutableArray array];
-                [t enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                    if ([obj isKindOfClass:[NSArray class]]) {
-                        NSArray *objArray = obj;
-                        [objArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-                            [inArray addObject:[NSString stringWithFormat:@" %@ ", [YHDB dbValue:obj type:KT_Dic[key]]]];
-                        }];
-                    }
-                }];
-                _whereInString = [NSString stringWithFormat:@"WHERE %@ IN (%@)", t.allKeys[0], [inArray componentsJoinedByString:@","]];
-            }
-        }
-        return self;
-    };
-}
-
-/**
- *  11
- */
-- (YHDB *(^)(NSDictionary *))orderBy {
-    return ^YHDB *(NSDictionary *t) {
-        //ORDER BY字典:ORDER BY ? ASC||DESC
-        if (t && t.count == 1) {
-            _orderByString = [NSString stringWithFormat:@"ORDER BY %@ %@", [t.allValues[0]  componentsJoinedByString:@","], t.allKeys[0]];
-        }
-        return self;
-    };
-}
-
-/**
- *  12
- */
-- (YHDB *(^)(NSDictionary *))groupBy {
-    return ^YHDB *(NSDictionary *t) {
-        if (t && t.count == 1) {
-            _groupByString = [NSString stringWithFormat:@"GROUP BY  %@", [t.allValues[0] componentsJoinedByString:@","]];
-        }
-        return self;
-    };
-}
-
-/**
- *  13
- */
-- (YHDB *(^)(NSDictionary *))limit {
-    return ^YHDB *(NSDictionary *t) {
-        if (t) {
-            _limitString = [NSString stringWithFormat:@"LIMIT %@, %@", t.allKeys[0], t.allValues[0]];
-        }
-        return self;
-    };
-}
-
-/**
- *  14 create | save | insert | update | delete
- */
-- (void (^)())executeUpdate {
-    return ^ {
-        switch (EType) {
-            case Create:{
-                [self executeCreate];
-            }
-                break;
-                
-            case Insert:{
-                [self executeInsert];
-            }
-                break;
-                
-            case Delete:{
-                [self executeDelete];
-            }
-                break;
-                
-            case Update:{
-                [self executeUpdate_];
-            }
-                break;
-                
-            case Save:{
-                [self excuteSave];
-            }
-                break;
-                
-            default:
-                break;
-        }
-    };
-}
-
-/**
- *  15 select
- */
-- (NSMutableArray *(^)())executeQuery {
-    return ^NSMutableArray *{
-        __block id modelCopy;
-        NSMutableArray *modelMArray = [NSMutableArray array];
-        [yhDB inDatabase:^(FMDatabase *db){
-            if (!_whereString) {
-                _whereString = [NSString string];
-            }
-            if (!_whereInString) {
-                _whereInString = [NSString string];
-            }
-            if (!_orderByString) {
-                _orderByString = [NSString string];
-            }
-            if (!_groupByString) {
-                _groupByString = [NSString string];
-            }
-            if (!_limitString) {
-                _limitString = [NSString string];
-            }
-            NSMutableDictionary *KTDic = [YHDB getKeysAndTypesFromModel:_model];
-            
-            if ([_selectString isEqualToString:@"*"]) {
-                _selectString = [KTDic.allKeys componentsJoinedByString:@", "];
-            }
-            NSMutableString *sql= [NSMutableString stringWithFormat:@"SELECT %@ FROM %@ %@ %@ %@ %@ %@", _selectString, [YHDB tableName:_model], _whereString, _whereInString, _orderByString, _groupByString, _limitString];
-            FMResultSet *rs = [db executeQuery:sql];
-#if DEBUG
-            if (!rs) {
-                NSLog(@"\n----------[YHDB Select]----------\n%@\n-------------------------------\n", rs.query);
-            }
-#endif
-            while ([rs next]) {
-                modelCopy = [[[_model class] alloc]init];
-                [KTDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                    if ([KTDic[key] isEqualToString:@"text"]) {
-                        [modelCopy setValue:[rs stringForColumn:key] forKey:key];
-                    }
-                    if ([KTDic[key] isEqualToString:@"integer"]) {
-                        [modelCopy setValue:@([rs intForColumn:key]) forKey:key];
-                    }
-                }];
-                [modelMArray addObject:modelCopy];
-            }
-            [rs close];
-        }];
-        _whereString = nil;
-        _whereInString = nil;
-        _orderByString = nil;
-        _groupByString = nil;
-        _limitString = nil;
-        return modelMArray;
-    };
-}
-
-/**
- *  16 create
- */
-- (void)executeCreate {
-    [yhDB inDatabase:^(FMDatabase *db){
-        if (!_primaryKey) {
-            _primaryKey = [NSString string];
-        }
-        _createTBArray = [NSMutableArray array];
-        NSMutableDictionary *KTDic = [YHDB getKeysAndTypesFromModel:_model];
-        NSString *primaryString = [_primaryKey isEqualToString: @""] ? @"id integer PRIMARY KEY AUTOINCREMENT" : [NSString stringWithFormat:@"%@ %@ PRIMARY KEY", _primaryKey, KTDic[_primaryKey]];
-        [_createTBArray addObject:primaryString];
-        if (_primaryKey) {
-            [KTDic removeObjectForKey:_primaryKey];
-        }
-        [KTDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-            [_createTBArray addObject:[NSString stringWithFormat:@"%@ %@", key, obj]];
-        }];
-        NSString *sql = [NSString stringWithFormat:@"CREATE TABLE if not exists %@ (%@)", [YHDB tableName:_model], [_createTBArray componentsJoinedByString:@","]];
-        BOOL result = [db executeUpdate:sql];
-        _primaryKey = nil;
-#if DEBUG
-        NSString *log = result ? @"\n----------[YHDB CreateTBSucceed]----------\n" : [NSString stringWithFormat:@"\n----------[YHDB CreateTBFailed]----------\n%@\n-------------------------------\n",sql];
-        NSLog(@"%@",log);
-#endif
-    }];
-}
-
-/**
- *  17 insert
- */
-- (void)executeInsert {
-    [yhDB inDatabase:^(FMDatabase *db){
-        NSMutableDictionary *KTDic = [YHDB getKeysAndTypesFromModel:_model];
-        __block NSMutableDictionary *KVDic = [NSMutableDictionary dictionary];
-        [KTDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-            id value = [_model valueForKey:key];
-            if (value) {
-                [KVDic setObject:[YHDB dbValue:value type:obj] forKey:key];
-            }
-            else {
-                [KVDic setObject:@"''" forKey:key];
-            }
-        }];
-        NSString *sql= [NSMutableString stringWithFormat:@"INSERT INTO %@ (%@) VALUES (%@)", [YHDB tableName:_model], [KVDic.allKeys componentsJoinedByString:@","], [KVDic.allValues componentsJoinedByString:@","]];
-        BOOL result = [db executeUpdate:sql];
-#if DEBUG
-        NSString *log = result ? @"\n----------[YHDB InsertSucceed]----------\n" : [NSString stringWithFormat:@"\n----------[YHDB InsertFailed]----------\n%@\n-------------------------------\n",sql];
-        NSLog(@"%@",log);
-#endif
-    }];
-}
-
-/**
- *  18
- */
-- (void)executeDelete {
-    [yhDB inDatabase:^(FMDatabase *db){
-        if (!_whereString) {
-            _whereString = [NSString string];
-        }
-        if (!_whereInString) {
-            _whereInString = [NSString string];
-        }
-        NSString *sql= [NSString stringWithFormat:@"DELETE FROM %@ %@ %@", [YHDB tableName:_model], _whereString, _whereInString];
-        BOOL result = [db executeUpdate:sql];
-        _whereString = nil;
-        _whereInString = nil;
-#if DEBUG
-        NSString *log = result ? @"\n----------[YHDB DeleteSucceed]----------\n" : [NSString stringWithFormat:@"\n----------[YHDB DeleteFailed]----------\n%@\n-------------------------------\n",sql];
-        NSLog(@"%@",log);
-#endif
-    }];
-}
-
-/**
- *  19 update
- */
-- (void)executeUpdate_ {
-    [yhDB inDatabase:^(FMDatabase *db){
-        NSMutableDictionary *KTDic = [YHDB getKeysAndTypesFromModel:_model];
-        NSMutableArray *memberArray = [NSMutableArray array];
-        if (_tbModel) {
-            [KTDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                if ([obj isEqualToString:@"integer"]) {
-                    if (![[_model valueForKey:key] isEqualToNumber:[_tbModel valueForKey:key]]) {
-                        id value = [_model valueForKey:key];
-                        if (value) {
-                            [memberArray addObject:[NSString stringWithFormat:@" %@ = %@ ", key, [YHDB dbValue:[_model valueForKey:key] type:KTDic[key]]]];
-                        }
-                    }
-                }
-                if ([obj isEqualToString:@"text"]) {
-                    if (![[_model valueForKey:key] isEqualToString:[_tbModel valueForKey:key]]) {
-                        id value = [_model valueForKey:key];
-                        if (value) {
-                            [memberArray addObject:[NSString stringWithFormat:@" %@ = %@ ", key, [YHDB dbValue:[_model valueForKey:key] type:KTDic[key]]]];
-                        }
-                    }
-                }
-            }];
-        }
-        else {
-            [KTDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-                id value = [_model valueForKey:key];
-                if (value) {
-                    [memberArray addObject:[NSString stringWithFormat:@" %@ = %@ ", key, [YHDB dbValue:[_model valueForKey:key] type:KTDic[key]]]];
-                }
-            }];
-        }
-        if (memberArray.count > 0) {
-            if (!_whereString) {
-                _whereString = [NSString string];
-            }
-            NSString *sql = [NSString stringWithFormat:@"UPDATE %@ SET %@ %@", [YHDB tableName:_model], [memberArray componentsJoinedByString:@","], _whereString];
-            BOOL result = [db executeUpdate:sql];
-            _whereString = nil;
-#if DEBUG
-            NSString *log = result ? @"\n----------[YHDB UpdateSucceed]----------\n" : [NSString stringWithFormat:@"\n----------[YHDB UpdateFailed]----------\n%@\n-------------------------------\n",sql];
-            NSLog(@"%@",log);
-#endif
-        }
-    }];
-}
-
-/**
- *  20 update | insert
- */
-- (void)excuteSave {
-    if (_primaryKey) {
-        //全部主键
-        NSMutableArray *allPkMArray = [YHDB getPkArrayFromModelArray:_modelArray
-                                                          primaryKey:_primaryKey];
-        //表中存在的主键:1条sql
-        NSArray *updatePkArray = [YHDB selectPrimaryKey:_primaryKey
-                                                   from:[_modelArray lastObject]
-                                      wherePrimaryKeyIn:allPkMArray];
-        //如果存在更新的行
-        if (updatePkArray.count > 0) {
-            NSMutableDictionary *KT_Dic = [YHDB getKeysAndTypesFromModel:[_modelArray lastObject]];
-            NSDictionary *whereInDic = [NSDictionary dictionaryWithObject:updatePkArray forKey:_primaryKey];
-            //表中存在的行
-            NSMutableArray *updataModelMArray = self.select(@"*").from([_modelArray lastObject]).whereIn(whereInDic).executeQuery();
-            
-            __block BOOL haveUpdate;
-            NSMutableArray *modelMArray = [NSMutableArray arrayWithArray:_modelArray];
-            [modelMArray enumerateObjectsUsingBlock:^(id obj0, NSUInteger idx0, BOOL *stop0) {
-                haveUpdate = NO;
-                [updataModelMArray enumerateObjectsUsingBlock:^(id obj1, NSUInteger idx1, BOOL *stop1) {
-                    if ([KT_Dic[_primaryKey] isEqualToString:@"integer"]) {
-                        if ([obj0 valueForKey:_primaryKey] == [obj1 valueForKey:_primaryKey]) {
-                            haveUpdate = YES;
-                        }
-                    }
-                    if ([KT_Dic[_primaryKey] isEqualToString:@"text"]) {
-                        if ([[obj0 valueForKey:_primaryKey] isEqualToString:[obj1 valueForKey:_primaryKey]]) {
-                            haveUpdate = YES;
-                        }
-                    }
-                    if (haveUpdate) {
-                        NSDictionary *whereDic = [NSDictionary dictionaryWithObject:[obj1 valueForKey:_primaryKey] forKey:_primaryKey];
-                        self.update(obj0).tbModel(obj1).where(whereDic).executeUpdate();
-                        *stop1 = YES;
-                    }
-                }];
-                if (!haveUpdate) {
-                    self.insert_(obj0).executeUpdate();
-                }
-            }];
-        }
-        else {
-            [_modelArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-                self.insert_(obj).executeUpdate();
-            }];
-        }
-        _primaryKey = nil;
++ (NSMutableString *)mergeSqlString:(NSMutableString *)superString subString:(NSString *)subString withString:(NSString *)withString {
+    if (superString.length > 0) {
+        [superString appendFormat:@"%@ %@", withString, subString];
     }
     else {
-        if (_whereString || _whereInString) {
-            self.delete_().from([_modelArray lastObject]).executeUpdate();
-        }
-        [_modelArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-            self.insert_(obj).executeUpdate();
+        [superString appendFormat:@"%@", subString];
+    }
+    return superString;
+}
+
++ (NSString *)sqlOfCreateTB:(id)model primaryKey:(NSString *)primaryKey {
+    NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
+    NSMutableString *memberString = primaryKey.length > 0 ? [[NSString stringWithFormat:@"%@ %@ PRIMARY KEY", primaryKey, KT_Dic[primaryKey]] mutableCopy] : @"id integer PRIMARY KEY AUTOINCREMENT";
+    if (primaryKey.length > 0) {
+        [KT_Dic removeObjectForKey:primaryKey];
+    }
+    [KT_Dic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+        [memberString appendFormat:@",%@ %@", key, obj];
+    }];
+    NSString *sql=[NSString stringWithFormat:@"CREATE TABLE if not exists %@ (%@)", [self tableName:model], memberString];
+    return sql;
+}
+
++ (NSString *)sqlOfInsert:(id)model {
+    NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
+    __block NSMutableString *keyString = [NSMutableString string];
+    __block NSMutableString *objString = [NSMutableString string];
+    __weak __typeof(self)weakSelf = self;
+    [KT_Dic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+        __strong __typeof(weakSelf)strongSelf = weakSelf;
+        id value = [model valueForKey:key];
+        keyString = [strongSelf mergeSqlString:keyString subString:key withString:@","];
+        objString = value ? [strongSelf mergeSqlString:objString subString:[self dbValue:value type:obj] withString:@","] : [strongSelf mergeSqlString:objString subString:@"''" withString:@","];
+    }];
+    NSMutableString *sql= [NSMutableString stringWithFormat:@"INSERT INTO %@ (%@) VALUES (%@)", [self tableName:model], keyString, objString];
+    return sql;
+}
+
++(NSString *)sqlOfUpdate:(id)model
+                 tbModel:(id)tbModel
+              whereArray:(NSArray *)whereArray {
+    NSMutableDictionary *KT_Dic = [self getKeysAndTypesFromModel:model];
+    __block NSMutableString *memberString = [NSMutableString string];
+    __weak __typeof(self)weakSelf = self;
+    //有变化才更新
+    if (tbModel) {
+        [KT_Dic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+            __strong __typeof(weakSelf)strongSelf = weakSelf;
+            id value = [model valueForKey:key];
+            id tbValue = [tbModel valueForKey:key];
+            if (value) {
+                BOOL hasUpdate = NO;
+                if ([obj isEqualToString:@"integer"] || [obj isEqualToString:@"real"]) {
+                    if (![value isEqualToNumber:tbValue]) {
+                        hasUpdate = YES;
+                    }
+                }
+                else if ([obj isEqualToString:@"text"]) {
+                    if (![value isEqualToString:tbValue]) {
+                        hasUpdate = YES;
+                    }
+                }
+                if (hasUpdate) {
+                    NSString *subString = [NSString stringWithFormat:@" %@ = %@ ", key, [self dbValue:[model valueForKey:key] type:obj]];
+                    memberString = [strongSelf mergeSqlString:memberString subString:subString withString:@","];
+                }
+            }
         }];
     }
-    _whereString = nil;
-    _whereInString = nil;
+    //有没有变化都更新
+    else {
+        [KT_Dic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+            __strong __typeof(weakSelf)strongSelf = weakSelf;
+            id value = [model valueForKey:key];
+            if (value) {
+                NSString *subString = [NSString stringWithFormat:@" %@ = %@ ", key, [self dbValue:[model valueForKey:key] type:obj]];
+                memberString = [strongSelf mergeSqlString:memberString subString:subString withString:@","];
+            }
+        }];
+    }
+    if (memberString.length > 0) {
+        NSString *sql;
+        __block NSMutableString *whereString = [NSMutableString string];
+        if (whereArray) {
+            [whereArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+                __strong __typeof(weakSelf)strongSelf = weakSelf;
+                NSString *subString = [NSString stringWithFormat:@" %@ = %@ ", obj, [self dbValue:[model valueForKey:obj] type:KT_Dic[obj]]];
+                whereString = [strongSelf mergeSqlString:whereString subString:subString withString:@"AND"];
+            }];
+        }
+        sql = [NSString stringWithFormat:@"UPDATE %@ SET %@ %@", [self tableName:model], memberString, whereString];
+        return sql;
+    }
+    return @"";
+}
+
++ (NSString *)where:(NSDictionary *)whereDic KT_Dic:(NSDictionary *)KT_Dic {
+    //WHERE字典:WHERE ? = ?
+    if (whereDic) {
+        __block NSMutableString *whereString = [NSMutableString string];
+        __weak __typeof(self)weakSelf = self;
+        [whereDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+            __strong __typeof(weakSelf)strongSelf = weakSelf;
+            NSString *subString = [NSString stringWithFormat:@" %@ = %@ ", key, [self dbValue:obj type:KT_Dic[key]]];
+            whereString = [strongSelf mergeSqlString:whereString subString:subString withString:@"AND"];
+        }];
+        return whereString;
+    }
+    return @"";
+}
+
++ (NSString *)whereIn:(NSDictionary *)whereInDic KT_Dic:(NSDictionary *)KT_Dic {
+    //WHERE IN (?)
+    if (whereInDic && whereInDic.count == 1) {
+        __block NSMutableString *whereInString = [NSMutableString string];
+        __block NSMutableString *inString = [NSMutableString string];
+        __weak __typeof(self)weakSelf = self;
+        [whereInDic enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+            if ([obj isKindOfClass:[NSArray class]]) {
+                NSArray *objArray = obj;
+                [objArray enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+                    __strong __typeof(weakSelf)strongSelf = weakSelf;
+                    NSString *subString = [NSString stringWithFormat:@" %@ ", [self dbValue:obj type:KT_Dic[key]]];
+                    inString = [strongSelf mergeSqlString:inString subString:subString withString:@","];
+                }];
+            }
+        }];
+        whereInString = [NSMutableString stringWithFormat:@"WHERE %@ IN (%@)", whereInDic.allKeys[0], inString];
+        return whereInString;
+    }
+    return @"";
 }
 
 @end

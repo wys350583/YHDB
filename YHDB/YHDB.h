@@ -34,12 +34,11 @@
 /**
  *  3 create table
  *
- *  @param model      [[Model alloc] init]
- *  @param primaryKey table has primary key ? primaryKey = a key from model : nil;
+ *  @param modelDic @{model : primarykey}
  *
  *  @return result of create
  */
-+ (BOOL)createTB:(id)model primaryKey:(NSString *)primaryKey;
++ (void)createTB:(NSDictionary *)modelDic;
 
 /**
  *  4 auto match to update or insert the data of a model or models which you input
@@ -49,10 +48,10 @@
  *  @param whereDic   if primary key == nil, then you need to input a whereDic{key0 : value0, key1 : value1, ...} to select the data in table which equal to the data you input and then the method will delele the data in table and insert you data
  *  @param whereInDic if primary key == nil, like param "whereDic"
  */
-+ (void)updateOrInsert:(NSArray *)modelArray
-            primaryKey:(NSString *)primaryKey
-                 where:(NSDictionary *)whereDic
-               whereIn:(NSDictionary *)whereInDic;
++ (void)save:(NSArray *)modelArray
+  primaryKey:(NSString *)primaryKey
+       where:(NSDictionary *)whereDic
+     whereIn:(NSDictionary *)whereInDic;
 
 /**
  *  5 insert data into table
@@ -141,111 +140,5 @@ whereIn:(NSDictionary *)whereInDic;
  */
 + (int)selectCount:(id)model
           whereDic:(NSDictionary *)whereDic;
-
-//////////////////////////////////////another way /////////////////////////////////////////////
-
-/**
- *  0 create table
- *
- *  ex:[YHDB share].createTB([[Account alloc] init]).primaryKey(@"auth_phone").executeUpdate();
- *
- *  ex(no primaryKey):[YHDB share].createTB([[Account alloc] init]).executeUpdate();
- *
- */
-- (YHDB *(^)(id))createTB;
-
-/**
- *
- *  1 auto match to update or insert the data of a model or models which you input
- *
- *  ex(table with primaryKey):[YHDB share].save([NSArray arrayWithObjects:acc0, acc1, nil]).primaryKey(@"auth_phone").executeUpdate();
- *
- *  ex(table without primaryKey):[YHDB share].save([NSArray arrayWithObjects:acc0, acc1, nil]).where([NSDictionary dictionaryWithObjectsAndKeys:obj0, key0, obj1, key1, nil]).executeUpdate();
- *
- *  ex(table without primaryKey):[YHDB share].save([NSArray arrayWithObjects:acc0, acc1, nil]).whereIn([NSDictionary dictionaryWithObject:[NSArray arrayWithObjects:obj0, obj1,nil] forKey:key]).executeUpdate();
- */
-- (YHDB *(^)(NSArray *))save;
-
-/**
- *  2 insert data into table
- *
- *  ex:[YHDB share].insert_(acc0).executeUpdate();
- *
- */
-- (YHDB *(^)(id))insert_;
-
-/**
- *  3 delete data from table
- *
- *  ex(delete all):[YHDB share].delete_().from([[Account alloc] init]).executeUpdate();
- *
- *  ex(delete some):[YHDB share].delete_().from([[Account alloc] init]).whereIn([NSDictionary dictionaryWithObject:[NSArray arrayWithObjects:@"0", @"1",nil] forKey:@"accountId"]).executeUpdate();
- *
- *  ex(delete one):[YHDB share].delete_().from([[Account alloc] init]).where([NSDictionary dictionaryWithObject:[NSArray arrayWithObject:@"0",nil] forKey:@"accountId"]).executeUpdate();
- *
- */
-- (YHDB *(^)())delete_;
-
-/**
- *  4 update table
- *
- *  ex:[YHDB share].update(acc0).where([NSDictionary dictionaryWithObjectsAndKeys:obj0, key0, obj1, key1, nil]).executeUpdate();
- *
- */
-- (YHDB *(^)(id))update;
-
-/**
- *  5 select data from table: select(@"*") = select *
- *
- *  ex:[YHDB share].select([NSString stringWithString:string]).from([[Account alloc] init]).executeQuery();
- *  choose what you need:.where() | .whereIn() | .orderBy() | .groupBy() | .limit()
- *
- */
-- (YHDB *(^)(NSString *))select;
-
-/**
- *  6 primaryKey
- */
-- (YHDB *(^)(NSString *))primaryKey;
-
-/**
- *  7 form tablename : [[Model alloc] init]
- */
-- (YHDB *(^)(id))from;
-
-/**
- *  9   @{key : obj}
- */
-- (YHDB *(^)(NSDictionary *))where;
-
-/**
- *  10  @{key : arrayWithObjects}
- */
-- (YHDB *(^)(NSDictionary *))whereIn;
-
-/**
- *  11  @{@"ASC" : arrayWithObjects} | @{@"DESC" : arrayWithObjects}
- */
-- (YHDB *(^)(NSDictionary *))orderBy;
-
-/**
- *  12  @{@"GROUP BY" : arrayWithObjects}
- */
-- (YHDB *(^)(NSDictionary *))groupBy;
-
-/**
- *  13  @{@(start) : @(count)}
- */
-- (YHDB *(^)(NSDictionary *))limit;
-
-/**
- *  14 create | save | insert | update | delete
- */
-- (void (^)())executeUpdate;
-
-/**
- *  15 select
- */
-- (NSMutableArray *(^)())executeQuery;
 
 @end
