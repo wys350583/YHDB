@@ -4,87 +4,142 @@
 ##Install
 #####Download the [YHDB](https://github.com/wyhazq/YHDB/archive/master.zip) &  [fmdb](https://github.com/ccgus/fmdb) 
 
-##Create Database
-#####1.Create a database for all users.
+##import
 ```Objective-C
-[YHDB createDB:@"CB"];
-```
-#####2.Create databases for every user.
-```Objective-C
-[YHDB createDB:obj0.userId];
+#import "NSObject+YHDB.h"
 ```
 
-##Create Table
-#####1.Table with primary key
+##BASE
+#####Perform the protocol in Model if you need,example:
 ```Objective-C
-[YHDB createTB:@{[[User alloc] init] : @"userId"}];
-```
-#####2.Table without primary key
-```Objective-C
-[YHDB createTB:@{[[User alloc] init] : @""}];
+@implementation
+
+- (NSString *)dbName {
+    return @"YHDB";
+}
+
+//have primaryKey
+- (NSString *)primaryKey {
+    return @"a";
+}
+
+//Perform if you need ensure a row or some rows while primaryKey is AutoIncrement,自增主键时，如果需要唯一确定一行或者几行时用
+- (NSArray *)whereKeysForPrimaryKeyAutoIncrement {
+    return @[@"c"];
+}
+@end
 ```
 
 ##Save
 #####Automatic matching for insert or update
-#####1.Table with primary key
+#####1.a model
 ```Objective-C
-[YHDB save:[NSArray arrayWithObjects:obj0, ..., nil] 
-      primaryKey:@"userId" 
-      where:nil 
-      whereIn:nil];
+Model *model = [[Model alloc] init];
+model.a = 1;
+model.b = @"a"
+model.c = 1.1;
+
+[model save];//save data to database
 ```
-#####2.Table without primary key
+#####2.a lot of models
 ```Objective-C
-//1
-[YHDB save:[NSArray arrayWithObjects:obj0, ..., nil] 
-      primaryKey:nil 
-      where:@{@(userId) : @(0), ...} 
-      whereIn:nil];
-//2
-[YHDB save:[NSArray arrayWithObjects:obj0, ..., nil] 
-      primaryKey:nil 
-      where:nil 
-      whereIn:@{@(userId) : @[@(0), @(1), ...]}];
+Model *model0 = [[Model alloc] init];
+model0.a = 1;
+model0.b = @"a"
+model0.c = 1.1;
+
+Model *model1 = [[Model alloc] init];
+model1.a = 2;
+model1.b = @"b"
+model1.c = 2.2;
+
+[Model save:@[model0, model1]];//save data to database
 ```
 ##Insert
 ```Objective-C
-[YHDB insert:obj0];
+[model insert];
+[Model insert:@[model0, model1]];
+[Model insert:@"sql"];
+[Model insert:@[sql0,sql1,...];
 ```
 ##Delete
 ```Objective-C
-//1
-[YHDB delete:[[User alloc] init] 
-      where:nil 
-      whereIn:nil]; //delete all
-//2
-[YHDB delete:[[User alloc] init] 
-      where:@{@(userId) : @(0)} 
-      whereIn:nil];//delete one
-//3
-[YHDB delete:[[User alloc] init] 
-      where:nil 
-      whereIn:@{@(userId) : @[@(0), @(1), ...]}];//delete some
+//1.delete from Model;
+[[Model deleteSelf] executeDelete];
+
+//2.delete from Model where a = 1
+[[[Model deleteSelf] where:@"a = 1"] executeDelete];
+[[[Model deleteSelf] where:@{@"a" : @(1)}] executeDelete];
+
+//3.delete from Model where a in (1,2,3)
+[[[Model deleteSelf] whereIn:@"a in (1,2,3)"] executeDelete];
+[[[Model deleteSelf] whereIn:@{@"a" : @[@(1), @(2), @(3)]}] executeDelete];
 ```
 ##Update
 ```Objective-C
-[YHDB update:obj0 
-      tbModel:nil 
-      whereArray:@[@"userId"]];
+[model update];
+[Model update:@[model0, model1]];
+[Model update:@"sql"];
+[Model update:@[sql0,sql1,...];
 ```
 ##Select
 ```Objective-C
+//1.select one row to model
+Model *model = [[Model alloc] initWithPK:@(1)];
+
+//2.select a lot row to model
+NSArray *array = [Model selectModelsWithSql:@"select * from Model"];
+NSArray *array = [[Model select:@"*"] executeQuery];
+//and...
 /**choose what you need:
- *where     @{key : obj}
- *whereIn   @{key : arrayWithObjects} 
- *orderBy   @{@"ASC" : arrayWithObjects} | @{@"DESC" : arrayWithObjects}
- *groupBy   @{@"GROUP BY" : arrayWithObjects}
- *limit     @{@(start) : @(count)}
+ *where:     @{key : obj} || @"key = obj" [... where:@{@"a" : @(1)}]; [... where:@"a = 1"];
+ *whereIn:   @{key : @[obj]} || @"key in (obj)" [... whereIn:@"a in (1,2,3)"]; [... whereIn:@{@"a" : @[@(1), @(2), @(3)]}];
+ *groupBy:   @[key] || @"key" [... groupBy:@"a"]; [... groupBy:@[a]];
+ *having:    @"string" [... having:@"a > 1"];
+ *orderBy:   @{@"ASC" : @[key]}, @{@"DESC" : @[key]} || @"key ASC", @"key DESC" [... orderBy:@"a ASC"]; [... orderBy:@{@"ASC" : @[@"a"]];
+ *limit:     0, size [... limit:0, 10];
  */
-[YHDB select:[[User alloc] init] 
-      where:nil 
-      whereIn:nil 
-      orderBy:nil 
-      groupBy:nil 
-      limit:nil];
+ 
+ //3.select count
+ NSInteger count = [[Model selectCount] executeQueryCount];
 ```
 
+##executeUpdate
+```Objective-C
+[Model executeUpdateWithSql:@"sql"];
+```
+
+##executeQuery
+```Objective-C
+NSArray *array = [Model executeQueryWithSql:@"sql"];
+```
+
+##Other
+##### resetDB
+```Objective-C
+[Model resetDB];
+```
+
+##### create Index
+```Objective-C
+[Model createIndexOnColumn:@"a"];
+```
+##### drop Index
+```Objective-C
+[Model dropIndexOnColumn:@"a"];
+```
+
+##### alter Column
+```Objective-C
+@interface Model
+//add a property
+@property (nonatomic, strong)NSString *d;
+@end
+
+[Model alterTableAddColumn:@"d"];
+```
+
+##### drop table
+```Objective-C
+[Model drop];
+```
