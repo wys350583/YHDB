@@ -5,140 +5,152 @@
 //  Copyright (c) 2015年 yh. All rights reserved.
 //
 
-#import "FMDatabase.h"
+#import "FMDB.h"
+
+@protocol YHDBProperty <NSObject>
+@optional
+
+/** 数据库名字，默认为YHDB.db
+ *
+ */
+- (NSString *)dbName;
+
+/** 数据库主键，默认为yhId, 自增
+ *
+ */
+- (NSString *)primaryKey;
+
+/** 自增主键的情况下能确定某一行的key,用于删除表数据
+ *
+ */
+- (NSArray *)whereKeysForPrimaryKeyAutoIncrement;
+
+@end
 
 @interface YHDB : FMDatabaseQueue
 
-/**
- *  0 create path in document with a database name
+/** 获得单例对象(好像并无卵用)
  *
- *  @param name   0.a database:ever name you like
- *                  1.many databases:advise to use userId
- */
-+ (void)createDB:(NSString *)name;
-
-/**
- *  1 create singleton
- *
- *  @return singleton
  */
 + (YHDB *)share;
 
-/**
- *  2 set singleton = nil
+/** 每个用户一个数据库时用，退出登录，被登出或者切换账号时把单例设为nil(建议在登录页的viewdidload中调用)
  *
- *  @return result
  */
-+ (void)shareRelease;
++ (void)resetDB;
 
-/**
- *  3 create table
+/** 执行更新sql语句，可传:1.sql语句 2.sql语句数组
  *
- *  @param modelDic @{model : primarykey}
- *
- *  @return result of create
  */
-+ (void)createTB:(NSDictionary *)modelDic;
++ (void)executeUpdateWithSql:(id)obj;
 
-/**
- *  4 auto match to update or insert the data of a model or models which you input
+/** 执行查询sql语句，传:sql语句
  *
- *  @param modelArray NSArray of model has value
- *  @param primaryKey table has primary key ? primaryKey = a key from model : nil;
- *  @param whereDic   if primary key == nil, then you need to input a whereDic{key0 : value0, key1 : value1, ...} to select the data in table which equal to the data you input and then the method will delele the data in table and insert you data
- *  @param whereInDic if primary key == nil, like param "whereDic"
  */
-+ (void)save:(NSArray *)modelArray
-  primaryKey:(NSString *)primaryKey
-       where:(NSDictionary *)whereDic
-     whereIn:(NSDictionary *)whereInDic;
++ (NSArray *)executeQueryWithSql:(NSString *)sql;
 
-/**
- *  5 insert data into table
+/** 保存，可传:1.实体对象 2.实体对象数组
  *
- *  @param model [[Model alloc] init]
- *
- *  @return result of insert
  */
-+(BOOL)insert:(id)model;
++ (void)save:(id)model;
 
-/**
- *  6 delete data from table
+/** 插入操作,可传:1.sql语句 2.sql语句数组 3.实体对象 4.实体对象数组
  *
- *  @param model      [[Model alloc] init]
- *  @param whereDic   like sql 'where whereDic.key = whereDic.value'
- *  @param whereInDic like sql 'where whereInDic.allKeys[0] in (whereInDic.allValues[0])'
- *
- *  @return rusult of delete
  */
-+ (BOOL)delete:(id)model
-where:(NSDictionary *)whereDic
-whereIn:(NSDictionary *)whereInDic;
++ (void)insert:(id)obj;
 
-/**
- *  7 update table
+/** 更新操作,可传:1.sql语句 2.sql语句数组 3.实体对象 4.实体对象数组（3,4非自增主键时用）
  *
- *  @param model           [[Model alloc] init]
- *  @param tbModel         model select from table，if you just want to update,you do not mind the data has change or not.
- *  @param whereArray      whereArray
- *
- *  @return result of update
  */
-+(BOOL)update:(id)model
-      tbModel:(id)tbModel
-   whereArray:(NSArray *)whereArray;
++ (void)update:(id)obj;
 
-/**
- *  8 select data from table
+/** 查询一个实体
  *
- *  @param model      [[Model alloc] init]
- *  @param whereDic   like sql 'where whereDic.key = whereDic.value'
- *  @param whereInDic like sql 'where whereInDic.allKeys[0] in (whereInDic.allValues[0])'
- *  @param orderByDic {"ASC||DESC" : "condition of order by"}
- *  @param groupByDic {"GROUP BY" : "condition of group by"}
- *  @param limitDic   {@(start) : @(count)}
- *
- *  @return modelArray with data
  */
-+ (NSMutableArray *)select:(id)model
-                     where:(NSDictionary *)whereDic
-                   whereIn:(NSDictionary *)whereInDic
-                   orderBy:(NSDictionary *)orderByDic
-                   groupBy:(NSDictionary *)groupByDic
-                     limit:(NSDictionary *)limitDic;
++ (id)selectModelFrom:(id)model wherePrimaryKeyEqualTo:(id)value;
 
-/**
- *  9 select data from table with sql
+/** 查询一个实体数组
  *
- *  @param model [[Model alloc] init]
- *  @param sql   sql
- *
- *  @return modelArray with data
  */
-+ (NSMutableArray *)select:(id)model sql:(NSString *)sql;
++ (NSArray *)selectModelsFrom:(id)model sql:(NSString *)sql;
 
-/**
- *  10 select primaryKey exist in table and primaryKeyArray
- *
- *  @param primaryKey      primaryKey
- *  @param model           [[Model alloc] init]
- *  @param primaryKeyArray primaryKeyArray
- *
- *  @return array of primaryKey exist in table and primaryKeyArray
- */
-+ (NSMutableArray *)selectPrimaryKey:(NSString *)primaryKey
-                                from:(id)model
-                   wherePrimaryKeyIn:(NSArray *)primaryKeyArray;
+////拼接
 
-/**
- *  11 select count from table
+/** WHERE 语句,可传:1.@"属性名 = 属性值" 2.NSDictionary @{属性名 : 属性值}
  *
- *  @param model    [[Model alloc] init]
- *  @param whereDic like sql 'where whereDic.key = whereDic.value'
- *
- *  @return count of table
  */
-+ (int)selectCount:(id)model
-          whereDic:(NSDictionary *)whereDic;
++ (id)where:(id)obj;
+
+/** WHERE IN 语句,可传:1.@"属性名 IN (属性值)" 2.NSDictionary @{属性名 : @[属性值]}
+ *
+ */
++ (id)whereIn:(id)obj;
+
+/** SELECT 语句,obj 可传:1.@"属性名" 2.NSArray @[属性名]; model 传:self
+ *
+ */
++ (id)select:(id)obj from:(id)model;
+
+/** GROUP BY 语句,obj 可传:1.@"属性名" 2.NSArray @[属性名]
+ *
+ */
++ (id)groupBy:(id)obj;
+
+/** ORDER BY 语句,obj 可传:@"属性名 ASC或者DESC" 2.NSDictionary @{@"ASC" : @[属性名]} 或 @{@"DESC" : @[属性名]}
+ *
+ */
++ (id)orderBy:(id)obj;
+
+/** LIMIT 语句,传:start, size
+ *
+ */
++ (id)limit:(NSUInteger)start size:(NSUInteger)size;
+
+/** 执行查询
+ *
+ */
++ (NSArray *)executeQuery;
+
+/** 查询行数, 传:self
+ *
+ */
++ (id)selectCountFrom:(id)model;
+
+/** 执行查询行数
+ *
+ */
++ (NSInteger)executeQueryCount;
+
+/** DELETE 语句, 传:self
+ *
+ */
++ (id)deleteFrom:(id)model;
+
+/** 执行删除
+ *
+ */
++ (void)executeDelete;
+
+////其他
+
+/** 创建索引,model传:self,column可传:1.@"属性名" 2.@[属性名]
+ *
+ */
++ (void)createIndexOnTable:(id)model column:(id)column;
+
+/** 删除索引,model传:self,column可传:1.@"属性名" 2.@[属性名]
+ *
+ */
++ (void)dropIndexOnTable:(id)model column:(id)column;
+
+/** 删除表,传:self
+ *
+ */
++ (void)dropTable:(id)model;
+
+/** 插入列,model传:self,column可传:1.@"属性名 属性名 ..."(属性名之间用空格隔开) 2.@[属性名]
+ *
+ */
++ (void)alterTable:(id)model addColumn:(id)column;
 
 @end
