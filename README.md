@@ -23,7 +23,8 @@
     return @"a";
 }
 
-//Perform if you need ensure a row or some rows while primaryKey is AutoIncrement,自增主键时，如果需要唯一确定一行或者几行时用
+//Perform if you need ensure a row or some rows while primaryKey is AutoIncrement
+//自增主键时，如果需要唯一确定一行或者几行时用
 - (NSArray *)whereKeysForPrimaryKeyAutoIncrement {
     return @[@"c"];
 }
@@ -92,11 +93,15 @@ NSArray *array = [Model selectModelsWithSql:@"select * from Model"];
 NSArray *array = [[Model select:@"*"] executeQuery];
 //and...
 /**choose what you need:
- *where:     @{key : obj} || @"key = obj" [... where:@{@"a" : @(1)}]; [... where:@"a = 1"];
- *whereIn:   @{key : @[obj]} || @"key in (obj)" [... whereIn:@"a in (1,2,3)"]; [... whereIn:@{@"a" : @[@(1), @(2), @(3)]}];
- *groupBy:   @[key] || @"key" [... groupBy:@"a"]; [... groupBy:@[a]];
+ *where:     @{key : obj} || @"key = obj" 
+ *           [... where:@{@"a" : @(1)}]; [... where:@"a = 1"];
+ *whereIn:   @{key : @[obj]} || @"key in (obj)" 
+ *           [... whereIn:@"a in (1,2,3)"]; [... whereIn:@{@"a" : @[@(1), @(2), @(3)]}];
+ *groupBy:   @[key] || @"key" 
+ *           [... groupBy:@"a"]; [... groupBy:@[a]];
  *having:    @"string" [... having:@"a > 1"];
- *orderBy:   @{@"ASC" : @[key]}, @{@"DESC" : @[key]} || @"key ASC", @"key DESC" [... orderBy:@"a ASC"]; [... orderBy:@{@"ASC" : @[@"a"]];
+ *orderBy:   @{@"ASC" : @[key]}, @{@"DESC" : @[key]} || @"key ASC", @"key DESC" 
+ *           [... orderBy:@"a ASC"]; [... orderBy:@{@"ASC" : @[@"a"]];
  *limit:     0, size [... limit:0, 10];
  */
  
